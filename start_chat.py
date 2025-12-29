@@ -1,22 +1,26 @@
-from pipeline import start_pipeline, text_queue, stop_pipeline, audio_buffer
-from vosk_recognizer_async import listen_and_recognize_phrase
+import asyncio
+import os
+import queue
+
+from pipeline import audio_buffer, start_pipeline, stop_pipeline, text_queue
+
 from llm_chat import send_chat_request, send_chat_request_queued
 from mms_tts import TTSVocaliser
-import asyncio
-import queue
-import os
+from vosk_recognizer_async import listen_and_recognize_phrase
 
 # --- Глобальные переменные ---
-WELCOME_MESSAGE = "Привет, я Орин"
+WELCOME_MESSAGE = "Привет, я Лемара"
 # ← ИНИЦИАЛИЗИРУЕМ ДО ЗАПУСКА PIPELINE!
 MAX_LENGTH = 200
 vocab = ...  # загрузи словарь как раньше
+
 
 # --- Пример: как теперь выглядит say_message ---
 def say_message(msg):
     # больше не вызываем vocalise() напрямую!
     # вместо этого — кладём в очередь
     text_queue.put(msg)
+
 
 # --- Главный асинхронный агент ---
 async def run_agent_aysnc():
@@ -28,7 +32,7 @@ async def run_agent_aysnc():
 
     print("⏳ Жду, пока приветствие проиграется...")
     await audio_buffer.join()  # ← ТУТ ДОЛЖНО БЫТЬ ПАУЗА!
-    #await asyncio.sleep(1.0)
+    # await asyncio.sleep(1.0)
     print("✅ Приветствие проиграно! Теперь можно слушать.")
 
     try:
@@ -44,7 +48,7 @@ async def run_agent_aysnc():
             await asyncio.to_thread(send_chat_request_queued, inp, True, text_queue)
 
             await audio_buffer.join()  # ← ТУТ ДОЛЖНО БЫТЬ ПАУЗА!
-            #await asyncio.sleep(1.0)
+            # await asyncio.sleep(1.0)
 
     except KeyboardInterrupt:
         print("\n🛑 Остановка агента...")
@@ -54,6 +58,7 @@ async def run_agent_aysnc():
         print(f"❌ Критическая ошибка: {e}")
         stop_pipeline()
         await pipeline_task
+
 
 # --- Запуск ---
 if __name__ == "__main__":

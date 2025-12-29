@@ -5,30 +5,30 @@
 Не использует облака. Не требует интернета. Не слышит себя.
 """
 
-import os
-import time
-import numpy as np
-import sounddevice as sd
 import asyncio
-import queue
 import json
+import os
+import queue
+import time
 from typing import Optional
+
+import numpy as np
 import requests
+import sounddevice as sd
 from requests import Session
-from normalizer import StreamTextProcessor
 
 # =========================
 # 📦 ИМПОРТ ВАШИХ МОДУЛЕЙ — УБЕДИТЕСЬ, ЧТО ПУТИ ВЕРНЫ
 # =========================
 from mms_tts import TTSVocaliser, play_audio_resample
+from normalizer import StreamTextProcessor
 from vosk_recognizer_async import listen_and_recognize_phrase
-
 
 # =========================
 # 🛠️ КОНФИГУРАЦИЯ — ЗАМЕНИТЕ НА СВОИ ПУТИ
 # =========================
 MODEL_DIR = "/home/pi/Repo/orin/models"
-SERVER_URL = 'http://192.168.1.17:8080/rkllm_chat'
+SERVER_URL = "http://192.168.1.17:8080/rkllm_chat"
 LLM_MODEL = "Qwen3-0.6B-rk3588-w8a8.rkllm"
 MAX_LENGTH = 200
 vocab = {}  # Загрузите свой словарь из mms_tts.py, если требуется
@@ -36,14 +36,14 @@ vocab = {}  # Загрузите свой словарь из mms_tts.py, есл
 # =========================
 # 📦 ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ — ОДИН РАЗ, НА ВСЁ ВРЕМЯ
 # =========================
-text_queue = queue.Queue()            # синхронная очередь для текста (от LLM → TTS)
-audio_buffer = asyncio.Queue()        # асинхронная очередь для готового аудио (TTS → player)
-expected_audio_count = 0              # 🔑 КЛЮЧЕВОЙ: сколько аудиофрагментов ожидается
-audio_count_lock = asyncio.Lock()     # блокировка для безопасного доступа к счётчику
-is_running = True                     # флаг остановки — используется только при выходе
+text_queue = queue.Queue()  # синхронная очередь для текста (от LLM → TTS)
+audio_buffer = asyncio.Queue()  # асинхронная очередь для готового аудио (TTS → player)
+expected_audio_count = 0  # 🔑 КЛЮЧЕВОЙ: сколько аудиофрагментов ожидается
+audio_count_lock = asyncio.Lock()  # блокировка для безопасного доступа к счётчику
+is_running = True  # флаг остановки — используется только при выходе
 
-tts_vocaliser = TTSVocaliser()        # один экземпляр на всё время
-session = Session()                   # одна сессия на всё время
+tts_vocaliser = TTSVocaliser()  # один экземпляр на всё время
+session = Session()  # одна сессия на всё время
 
 
 # =========================
@@ -52,20 +52,19 @@ session = Session()                   # одна сессия на всё вре
 def send_chat_request_queued(user_message: str, is_streaming=True):
     global expected_audio_count
     """Отправляет запрос в LLM и кладёт ответ в text_queue по фрагментам"""
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': 'not_required'
-    }
+    headers = {"Content-Type": "application/json", "Authorization": "not_required"}
     data = {
         "model": LLM_MODEL,
         "messages": [{"role": "user", "content": user_message}],
         "stream": is_streaming,
         "enable_thinking": False,
-        "tools": None
+        "tools": None,
     }
 
     print(f"📩 [LLM] Отправляю запрос: {user_message[:50]}...")
-    responses = session.post(SERVER_URL, json=data, headers=headers, stream=is_streaming, verify=False)
+    responses = session.post(
+        SERVER_URL, json=data, headers=headers, stream=is_streaming, verify=False
+    )
 
     if responses.status_code != 200:
         print(f"❌ [LLM] Ошибка: {responses.text}")
@@ -79,7 +78,7 @@ def send_chat_request_queued(user_message: str, is_streaming=True):
         if not line:
             continue
         try:
-            line_data = json.loads(line.decode('utf-8'))
+            line_data = json.loads(line.decode("utf-8"))
         except json.JSONDecodeError:
             continue
 
@@ -95,7 +94,9 @@ def send_chat_request_queued(user_message: str, is_streaming=True):
             for frag in fragments:
                 if frag:
                     text_queue.put(frag)
-                    print(f"📦 [LLM] Последний фрагмент: '{frag[:40]}...' (#{len(frag)})")
+                    print(
+                        f"📦 [LLM] Последний фрагмент: '{frag[:40]}...' (#{len(frag)})"
+                    )
                     expected_audio_count += 1
             break  # ← Выход из цикла
 
@@ -117,8 +118,8 @@ def send_chat_request_queued(user_message: str, is_streaming=True):
     # НО: мы уже вызвали flush() в `finish_reason == "stop"` — так что здесь не нужно
     # Однако, если LLM вернёт ответ без "finish_reason" — это резервная защита:
     if not line_data["choices"][-1]["finish_reason"]:  # редкий случай
-         fragments = processor.flush()
-         for frag in fragments:
+        fragments = processor.flush()
+        for frag in fragments:
             if frag:
                 text_queue.put(frag)
                 expected_audio_count += 1
@@ -137,14 +138,20 @@ async def audio_player():
                 print("🛑 [AUDIO PLAYER] Получен сигнал остановки — завершаю...")
                 break
 
-            print(f"🎧 [PLAYER] Начинаю проигрывание фрагмента длиной {len(audio_data)} сэмплов")
+            print(
+                f"🎧 [PLAYER] Начинаю проигрывание фрагмента длиной {len(audio_data)} сэмплов"
+            )
             start_play = time.time()
             await asyncio.to_thread(play_audio_resample, audio_data)
             duration_sec = len(audio_data) / 16000
             end_play = time.time()
 
-            print(f"✅ [PLAYER] Проигрывание завершено (реальное время: {duration_sec:.3f}с)")
-            print(f"⏱️ [PLAYER] play_audio() заняла {end_play - start_play:.3f}с (ожидалось ~{duration_sec:.3f}с)")
+            print(
+                f"✅ [PLAYER] Проигрывание завершено (реальное время: {duration_sec:.3f}с)"
+            )
+            print(
+                f"⏱️ [PLAYER] play_audio() заняла {end_play - start_play:.3f}с (ожидалось ~{duration_sec:.3f}с)"
+            )
 
             audio_buffer.task_done()
 
@@ -152,7 +159,9 @@ async def audio_player():
             async with audio_count_lock:
                 global expected_audio_count
                 expected_audio_count -= 1
-                print(f"📊 [PLAYER] Осталось ожидать: {expected_audio_count} фрагментов")
+                print(
+                    f"📊 [PLAYER] Осталось ожидать: {expected_audio_count} фрагментов"
+                )
     except Exception as e:
         print(f"❌ [AUDIO PLAYER] Ошибка: {e}")
     finally:
@@ -172,13 +181,16 @@ async def audio_synthesizer():
 
             print(f"📝 [SYNTHESIZER] Получил текст: '{text}'", flush=True)
             audio_data = tts_vocaliser.synthesize(text)
-            print(f"🎵 [SYNTHESIZER] Синтезировал: {len(audio_data)} сэмплов → кладу в буфер", flush=True)
-            #await audio_buffer.put(audio_data)
+            print(
+                f"🎵 [SYNTHESIZER] Синтезировал: {len(audio_data)} сэмплов → кладу в буфер",
+                flush=True,
+            )
+            # await audio_buffer.put(audio_data)
             audio_buffer.put_nowait(audio_data)
             print(f"🎵 [SYNTHESIZER] Положил в буффер, жду текста", flush=True)
 
             # 👇 Уменьшаем счётчик ожидаемых фрагментов — один синтезирован и положен
-            #async with audio_count_lock:
+            # async with audio_count_lock:
             #    global expected_audio_count
             #    expected_audio_count -= 1
             #    print(f"📊 [SYNTHESIZER] Осталось ожидать: {expected_audio_count} фрагментов")
@@ -199,6 +211,7 @@ async def say_message(msg: str):
         expected_audio_count += 1
     print(f"📤 [SAY] Отправляю в очередь: '{msg}'")
     text_queue.put(msg)
+
 
 def clear_text_queue():
     """Очищает очередь текста — убирает мусор перед новым запросом"""
@@ -224,9 +237,9 @@ async def run_agent():
 
     # 📣 ПРИВЕТСТВИЕ
     greetings = [
-        "Привет, я Орин.",
+        "Привет, я Лемара.",
         "Я — ваш голосовой ассистент.",
-        "Я работаю полностью локально."
+        "Я работаю полностью локально.",
     ]
 
     print("📢 Приветствую... Отправляю приветственные сообщения в очередь...")
