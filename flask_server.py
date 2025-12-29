@@ -15,7 +15,7 @@ app = Flask(__name__)
 
 # Set the dynamic library path
 rkllm_lib = ctypes.CDLL(
-    "/home/pi/Repo/rknn-llm/examples/rkllm_server_demo/rkllm_server/lib/librkllmrt.so"
+    "/home/firefly/rknn-llm/examples/rkllm_server_demo/rkllm_server/lib/librkllmrt.so"
 )
 
 # Define the structures from the library
